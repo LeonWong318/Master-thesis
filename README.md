@@ -9,3 +9,4 @@ This is the master thesis repo collaborated by Yinsong and Zihao.
 ## **Environment prerequist**
 - System: Ubuntu 20.04
 - ROS: neotic version
+- OpEn: The MPC solver we use, please following the [installation guide] (https://alphaville.github.io/optimization-engine/docs/installation)
