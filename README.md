@@ -1,6 +1,6 @@
 # Toward Efficient Collaboration in Autonomous Mobile Robot Fleets: Addressing Latency and Distributed Model Predictive Control
 
-This is the master thesis repo collaborated by Yinsong and Zihao.
+This branch is the mpc-only version of the repository https://github.com/kristianceder/DRL-Traj-Planner/tree/multirobot
 
 ## **To-do list:**
 1. set up environment in linux and simulation platform
