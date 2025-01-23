@@ -83,7 +83,7 @@ class InterfaceMpc:
         if local_ref_traj is not None:
             if local_ref_traj.shape[1] == 2:
                 local_ref_traj = np.concatenate((local_ref_traj, original_ref_traj[:,[2]]), axis=1)
-        return original_ref_traj, local_ref_traj, extra_ref_traj
+        return original_ref_traj, local_ref_traj
     
     def get_action(self, current_ref_traj: np.ndarray, mode='work', initial_guess:np.ndarray=None):
         """If termination condition is met, return None."""
