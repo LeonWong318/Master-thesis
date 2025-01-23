@@ -10,3 +10,8 @@ This branch is the mpc-only version of the repository https://github.com/kristia
 - System: Ubuntu 20.04
 - ROS: neotic version
 - OpEn: The MPC solver we use, please following the [installation guide](https://alphaville.github.io/optimization-engine/docs/installation) from official website
+
+## **Guidence**
+- cd src/
+- python init_solver.py
+- python test_block.py

@@ -15,11 +15,11 @@ from visualizer.mpc_plot import MpcPlotAfter
 
 
 ### Customize
-# CONFIG_FN = 'mpc_test.yaml'
-CONFIG_FN = 'mpc_default.yaml' # max_solver_time: 0.1
+CONFIG_FN = 'mpc_test.yaml'
+# CONFIG_FN = 'mpc_default.yaml' # max_solver_time: 0.1
 # CONFIG_FN = 'mpc_longiter.yaml' # max_solver_time: 1.0
 
-INIT_BUILD = False
+# INIT_BUILD = False
 PLOT_INLOOP = True
 show_animation = False
 save_animation = False
@@ -30,9 +30,9 @@ case_index = 4 # if None, give the hints
 yaml_fp = os.path.join(pathlib.Path(__file__).resolve().parents[1], 'config', CONFIG_FN)
 config = Configurator(yaml_fp)
 
-### Build
-if INIT_BUILD:
-    MpcModule(config).build(motion_model.unicycle_model)
+# ### Build
+# if INIT_BUILD:
+#     MpcModule(config).build(motion_model.unicycle_model)
 
 ### Load simulator
 sim = Simulator(config, case_index, inflate_margin=(config.vehicle_width+config.vehicle_margin))
