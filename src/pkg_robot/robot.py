@@ -122,7 +122,7 @@ class RobotManager():
     def __len__(self) -> int:
         return len(self.ROBOT_ID_LIST)
     
-    @staticmethod
+    # @staticmethod
     def _check_id(f): 
         """Decorator to check if robot_id exists"""
         def wrapper(self, robot_id, *args, **kwargs):

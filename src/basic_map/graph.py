@@ -22,7 +22,7 @@ class NetGraph(nx.Graph):
         super().__init__()
         self._position_key = 'position'
         for node_id in node_dict:
-            self.add_node(int(node_id), **{self._position_key: node_dict[node_id]})
+            self.add_node(node_id, **{self._position_key: node_dict[node_id]})
         self.add_edges_from(edge_list)
         self._distance_weight()
 
