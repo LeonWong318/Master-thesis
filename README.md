@@ -1,32 +1,50 @@
 # Toward Efficient Collaboration in Autonomous Mobile Robot Fleets: Addressing Latency and Distributed Model Predictive Control
 
-This is the master thesis repo collaborated by Yinsong and Zihao.
+This is the master thesis repository collaborated by Yinsong and Zihao.
 
-## **To-do list:**
-1. set up environment in linux and simulation platform
-2. literature review the distributed MPC and prepare the overleaf 
+## System Requirements
 
-# System Requirements
-Before installing Python dependencies, ensure you have the following system packages installed:
+### Prerequisites
+- Operating System: Ubuntu 20.04
+- ROS: Noetic
+- Python: 3.9
+- OpEn: Optimization Engine for MPC solver ([Installation Guide](https://alphaville.github.io/optimization-engine/docs/installation))
 
-- System: Ubuntu 20.04
-- ROS: neotic version
-- OpEn: The MPC solver we use, please following the [installation guide](https://alphaville.github.io/optimization-engine/docs/installation) from official website
-
-# Update package list and install pip
+### System Dependencies
+# Update package list
 sudo apt update
-sudo apt install pip
-
-# Install requirements
-pip install -r requirements.txt
 
 # Install build tools
-sudo apt install build-essential
+sudo apt install build-essential pip
 
-# Install Rust and Cargo
+# Install Rust and Cargo (Required for OpEn)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env  # Load Rust environment
 
-# Build solver and run test
+### Python Dependencies
+# Install Python packages
+pip install -r requirements.txt
+
+## Getting Started
+
+### Build and Test
+# Build MPC solver
 cd src/
 python build_solver.py
+
+# Run test
 python test_mpc.py
+
+## Project Status
+
+### Current To-Do List
+1. Set up environment in Linux and simulation platform
+2. Literature review on distributed MPC and prepare the Overleaf document
+
+## Documentation
+- For detailed OpEn installation instructions, please refer to the [official documentation](https://alphaville.github.io/optimization-engine/docs/installation)
+- Additional documentation and implementation details will be added as the project progresses
+
+## Contributors
+- Yinsong
+- Zihao
