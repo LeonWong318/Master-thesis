@@ -270,7 +270,7 @@ class RobotManager():
     def get_robot_state(self, robot_id) -> np.ndarray:
         robot = self.get_robot(robot_id)
         return robot.state
-        
+    
     @_check_id
     def get_other_robot_states(self, ego_robot_id, config_mpc: MpcConfiguration, default:float=-10.0) -> list:
         state_dim = config_mpc.ns
@@ -290,4 +290,3 @@ class RobotManager():
                     other_robot_states[idx_pred : idx_pred+state_dim*horizon] = list(pred_states.reshape(-1))
                     idx_pred += state_dim*horizon
         return other_robot_states
-    
