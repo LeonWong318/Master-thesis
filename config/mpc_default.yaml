@@ -37,6 +37,7 @@ qthetaN: 0.0            # Terminal cost; error relative to final reference headi
 # Building options in the optimizer
 solver_type: 'PANOC'
 max_solver_time: 500_000        # micros (0.5 sec)
+# max_solver_time: 1_0
 build_type: 'release'           # Can have 'debug' or 'release'
 build_directory: 'mpc_solver'   # Name of the directory where the build is created
 bad_exit_codes: ["NotConvergedIterations", "NotConvergedOutOfTime"] # Optimizer specific names, otherwise "Converged"
