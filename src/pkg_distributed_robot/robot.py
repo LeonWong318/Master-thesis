@@ -1,7 +1,8 @@
-from typing import Any, Optional, Union, Dict, List, Tuple
+from typing import Any, Optional, List
 from dataclasses import dataclass
 import numpy as np
 from datetime import datetime
+import asyncio
 
 from .messages import (
     Message, MessageType, Communication, NetworkDelay,
@@ -12,42 +13,103 @@ from .types import PathNode, RobotManagerProtocol
 
 
 class Robot:
-    """具有通信能力的机器人类"""
     def __init__(self, config: Any, motion_model: Any, id_: Optional[int] = None):
-        # 基本属性
         self.id_ = id_ if id_ is not None else id(self)
         self.config = config
         self.motion_model = motion_model
-        
-        # 组件
         self._state = None
         self.controller = None
         self.planner = None
         self.visualizer = None
         self.pred_states = None
-        
-        # 通信和管理相关
         self._manager = None
         self._next_action = None
         self._running = False
-        self._idle = True
+        self._message_task = None
         
-        # 通信组件
+        # 设置通信
         network_delay = NetworkDelay(
-            mean_delay=0.1,    # 100ms平均延迟
-            std_delay=0.02,    # 20ms标准差
-            min_delay=0.05,    # 最小50ms
-            max_delay=0.2      # 最大200ms
+            mean_delay=0.1,
+            std_delay=0.02,
+            min_delay=0.05,
+            max_delay=0.2
         )
         self.communication = Communication(network_delay)
+
+    async def start(self):
+        """启动机器人的通信和控制循环"""
+        self._running = True
+        # 在后台启动消息循环
+        self._message_task = asyncio.create_task(self._run_message_loop())
+
+    async def stop(self):
+        """停止机器人"""
+        self._running = False
+        if self._message_task:
+            self._message_task.cancel()
+            try:
+                await self._message_task
+            except asyncio.CancelledError:
+                pass
+            self._message_task = None
         
-        # 消息处理映射
-        self._message_handlers = {
-            MessageType.COMPUTE_REQUEST: self._handle_compute_request,
-            MessageType.ALL_STATES_UPDATE: self._handle_state_update,
-        }
+        if self._manager:
+            await self.unsubscribe()
+
+    async def _run_message_loop(self):
+        """消息处理主循环"""
+        try:
+            while self._running:
+                try:
+                    # 接收消息
+                    message = await asyncio.wait_for(
+                        self.communication.receive(),
+                        timeout=0.1  # 100ms 超时
+                    )
+                    
+                    if message is None:  # 消息可能因为网络延迟而丢失
+                        continue
+                        
+                    # 处理消息
+                    handler = self._message_handlers.get(message.msg_type)
+                    if handler:
+                        await handler(message)
+                        
+                except asyncio.TimeoutError:
+                    # 超时是正常的，继续循环
+                    continue
+                except Exception as e:
+                    print(f"Error in robot {self.id_} message loop: {e}")
+                    
+                # 添加短暂延迟避免CPU占用过高
+                await asyncio.sleep(0.001)
+                
+        except asyncio.CancelledError:
+            # 正常的取消操作
+            pass
+        finally:
+            self._running = False
+
+    async def subscribe(self, manager: 'RobotManagerProtocol') -> None:
+        """订阅到管理器"""
+        if self._manager is not None:
+            raise ValueError(f"Robot {self.id_} already subscribed to a manager")
         
-        pass
+        self._manager = manager
+        # 发送注册消息
+        await self.communication.send(Message(
+            MessageType.REGISTRATION,
+            self.id_,
+            self.communication
+        ))
+        
+        # 等待注册确认（可选）
+        try:
+            register_complete = asyncio.Event()
+            await asyncio.wait_for(register_complete.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            print(f"Warning: Registration confirmation timeout for robot {self.id_}")
+
 
     def initialize(self, controller: Any, planner: Any, visualizer: Any) -> None:
         """初始化机器人组件"""
@@ -96,30 +158,6 @@ class Robot:
         self.controller.state = next_state
         self._state = next_state
 
-    async def start(self):
-        """启动机器人的通信和控制循环"""
-        self._running = True
-        await self._run_message_loop()
-
-    async def stop(self):
-        """停止机器人"""
-        self._running = False
-        if self._manager:
-            await self.unsubscribe()
-
-    async def subscribe(self, manager: RobotManagerProtocol) -> None:
-        """订阅到管理器"""
-        if self._manager is not None:
-            raise ValueError(f"Robot {self.id_} already subscribed to a manager")
-            
-        # 发送注册消息
-        await self.communication.send(Message(
-            MessageType.REGISTRATION,
-            self.id_,
-            self.communication
-        ))
-        self._manager = manager
-
     async def unsubscribe(self) -> None:
         """取消订阅"""
         if self._manager:
@@ -129,19 +167,6 @@ class Robot:
                 None
             ))
             self._manager = None
-
-    async def _run_message_loop(self):
-        """消息处理主循环"""
-        while self._running:
-            # 接收消息
-            message = await self.communication.receive()
-            if message is None:  # 消息可能因为网络延迟而丢失
-                continue
-                
-            # 处理消息
-            handler = self._message_handlers.get(message.msg_type)
-            if handler:
-                await handler(message)
 
     async def _compute_trajectory(self, params: SimulationParams) -> TrajectoryResult:
         """计算轨迹"""

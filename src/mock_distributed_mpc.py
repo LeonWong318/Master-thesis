@@ -103,6 +103,8 @@ async def main():
     # 创建并初始化机器人
     robots = []
     try:
+        # 并行初始化所有机器人
+        init_tasks = []
         for i, rid in enumerate(robot_ids):
             # 创建机器人
             robot = Robot(config_robot, UnicycleModel(sampling_time=config_mpc.ts), rid)
@@ -138,11 +140,20 @@ async def main():
             controller.load_init_states(initial_state, goal_state)
             controller.set_work_mode('safe', use_predefined_speed=True)
             
-            # 启动机器人并订阅到管理器
-            await robot.start()
-            await robot.subscribe(robot_manager)
-            robots.append(robot)
+            # 添加到可视化
             visualizer.add_robot(robot, i)
+            robots.append(robot)
+            
+            # 创建启动任务
+            init_tasks.append(asyncio.create_task(robot.start()))
+            init_tasks.append(asyncio.create_task(robot.subscribe(robot_manager)))
+
+        # 等待所有机器人初始化完成，设置超时
+        try:
+            await asyncio.wait_for(asyncio.gather(*init_tasks), timeout=5.0)
+        except asyncio.TimeoutError:
+            print("Warning: Some robots failed to initialize in time")
+
 
         # 主循环
         for kt in range(TIMEOUT):
