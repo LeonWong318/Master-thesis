@@ -123,13 +123,30 @@ class Robot:
     @property
     def state(self) -> np.ndarray:
         """获取当前状态"""
+        if self.controller:
+            return self.controller.state
         return self._state
 
     def step(self, action: np.ndarray) -> None:
         """执行一步"""
-        if self.controller:
-            self.controller.step(action)
-            self._state = self.controller.state
+        # 如果没有控制器，直接返回
+        if not self.controller:
+            return
+
+        # 存储当前状态和控制输入
+        last_action = action
+        self.controller.past_actions.append(last_action)
+        
+        # 使用运动模型更新状态
+        next_state = self.controller.motion_model(
+            self.state, 
+            action, 
+            self.controller.ts
+        )
+        
+        # 更新控制器和内部状态
+        self.controller.state = next_state
+        self._state = next_state
 
     def subscribe(self, manager: 'RobotManager') -> None:
         """订阅到管理器"""
@@ -264,84 +281,76 @@ class RobotManager:
         horizon = config_mpc.N_hor
         num_others = config_mpc.Nother
         
-        # 计算预期的总长度
-        total_length = state_dim * (horizon+1) * num_others
-        print(f"Expected length: {total_length}")
-        
         # 初始化状态列表
-        other_robot_states = [default] * total_length
+        other_robot_states = [default] * state_dim * (horizon+1) * num_others
         
         # 使用独立的索引追踪当前状态和预测状态的位置
         idx = 0                        # 当前状态的索引
         idx_pred = state_dim * num_others  # 预测状态的起始索引
-        print(f"Initial idx_pred: {idx_pred}")
 
         # 遍历其他机器人
         for rid in list(self._robots.keys()):
             if rid != ego_robot_id:
                 # 添加当前状态
                 current_state = self.get_robot_state(rid)
-                print(f"Robot {rid} current state length: {len(current_state)}")
-                other_robot_states[idx : idx+state_dim] = list(current_state)
+                if isinstance(current_state, np.ndarray):
+                    current_state = current_state.tolist()
+                other_robot_states[idx : idx+state_dim] = current_state
                 idx += state_dim
 
                 # 添加预测状态
                 pred_states = self.get_pred_states(rid)
                 if pred_states is not None:
-                    pred_flat = list(pred_states.reshape(-1))
-                    print(f"Robot {rid} pred states length: {len(pred_flat)}")
+                    # 确保 pred_states 是列表形式
+                    if isinstance(pred_states, np.ndarray):
+                        pred_states = pred_states.tolist()
+                    # 展平预测状态
+                    pred_flat = []
+                    for state in pred_states:
+                        if isinstance(state, np.ndarray):
+                            pred_flat.extend(state.tolist())
+                        else:
+                            pred_flat.extend(state)
+                            
+                    # 确保长度正确
                     pred_len = state_dim * horizon
-                    print(f"Expected pred length: {pred_len}")
-                    if len(pred_flat) != pred_len:
-                        print(f"Warning: pred_states length mismatch for robot {rid}")
-                    other_robot_states[idx_pred : idx_pred+pred_len] = \
-                        pred_flat[:pred_len]
+                    if len(pred_flat) > pred_len:
+                        pred_flat = pred_flat[:pred_len]
+                    elif len(pred_flat) < pred_len:
+                        # 如果预测状态不够长，用最后一个状态填充
+                        last_state = pred_flat[-state_dim:] if pred_flat else [default] * state_dim
+                        while len(pred_flat) < pred_len:
+                            pred_flat.extend(last_state)
+                            
+                    other_robot_states[idx_pred : idx_pred+pred_len] = pred_flat
                     idx_pred += state_dim * horizon
 
-        print(f"Final other_robot_states length: {len(other_robot_states)}")
         return other_robot_states
-    
+
     async def simulate_step(self, kt: int, config_mpc: Any, static_obstacles: Any) -> List[SimulationResult]:
         """执行一步仿真"""
         results = []
         for robot in self._robots.values():
             try:
-                print(f"\nSimulating robot {robot.id_}")
                 # 获取局部参考轨迹
                 ref_states, ref_speed, _ = robot.planner.get_local_ref(
                     kt * config_mpc.ts,
                     (float(robot.state[0]), float(robot.state[1]))
                 )
-                print(f"Original ref_states shape: {ref_states.shape}")
                 
                 # 确保参考轨迹长度正确
                 if len(ref_states) < config_mpc.N_hor:
-                    # 如果轨迹太短，用最后一个状态补齐
                     last_state = ref_states[-1]
                     padding = np.tile(last_state, (config_mpc.N_hor - len(ref_states), 1))
                     ref_states = np.vstack([ref_states, padding])
                 elif len(ref_states) > config_mpc.N_hor:
-                    # 如果轨迹太长，截断
                     ref_states = ref_states[:config_mpc.N_hor]
-                
-                print(f"Adjusted ref_states shape: {ref_states.shape}")
                 
                 # 设置控制器的参考轨迹
                 robot.controller.set_ref_states(ref_states, ref_speed=ref_speed)
                 
                 # 获取其他机器人状态
                 other_robot_states = self.get_other_robot_states(robot.id_, config_mpc)
-                print(f"other_robot_states length: {len(other_robot_states)}")
-                
-                # 获取静态障碍物约束
-                stc_constraints, closest_obstacles = robot.controller.get_stc_constraints(static_obstacles)
-                print(f"stc_constraints length: {len(stc_constraints)}")
-                
-                # 获取动态障碍物约束
-                dyn_constraints = robot.controller.get_dyn_constraints()
-                print(f"dyn_constraints length: {len(dyn_constraints)}")
-                print(f"stc_weights length: {len(robot.controller.stc_weights)}")
-                print(f"dyn_weights length: {len(robot.controller.dyn_weights)}")
                 
                 # 执行MPC控制计算
                 actions, pred_states, current_refs, debug_info = robot.controller.run_step(
@@ -350,16 +359,16 @@ class RobotManager:
                     other_robot_states=other_robot_states,
                     map_updated=True
                 )
-    
+
                 # 更新机器人状态
                 robot.step(actions[-1])
                 robot.pred_states = pred_states
-    
+
                 # 保存结果
                 result = SimulationResult(
                     robot_id=robot.id_,
                     state=robot.state,
-                    pred_states=np.asarray(pred_states),
+                    pred_states=np.asarray(pred_states) if isinstance(pred_states, list) else pred_states,
                     debug_info=debug_info,
                     current_refs=current_refs,
                     actions=np.array(actions),
@@ -372,7 +381,7 @@ class RobotManager:
             except Exception as e:
                 print(f"Error simulating robot {robot.id_}: {str(e)}")
                 raise
-            
+
         return results
 
 # 轨迹调度相关的辅助函数
