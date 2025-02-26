@@ -38,8 +38,9 @@ python test_mpc.py
 ## Project Status
 
 ### Current To-Do List
-1. Set up environment in Linux and simulation platform
-2. Literature review on distributed MPC and prepare the Overleaf document
+1. Split robot and cluster management system into different processes
+2. Define and establish communication protocal between robot and robot manager
+3. Introduce ROS2 as communication mechanism
 
 ## Documentation
 - For detailed OpEn installation instructions, please refer to the [official documentation](https://alphaville.github.io/optimization-engine/docs/installation)

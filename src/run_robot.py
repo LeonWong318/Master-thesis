@@ -1,134 +1,187 @@
 import os
 import json
 import pathlib
+import asyncio
 
 import numpy as np
 
 from basic_motion_model.motion_model import UnicycleModel
-
 from pkg_motion_plan.global_path_coordinate import GlobalPathCoordinator
 from pkg_motion_plan.local_traj_plan import LocalTrajPlanner
 from pkg_tracker_mpc.trajectory_tracker import TrajectoryTracker
-from pkg_robot.robot import RobotManager
+from pkg_distributed_robot.robot import Robot
+from pkg_distributed_robot.robot_manager import RobotManager
+from pkg_distributed_robot.messages import NetworkDelay
 
-from configs import MpcConfiguration
-from configs import CircularRobotSpecification
-
+from configs import MpcConfiguration, CircularRobotSpecification
 from visualizer.object import CircularObjectVisualizer
-from visualizer.mpc_plot import MpcPlotInLoop # type: ignore
+from visualizer.mpc_plot import MpcPlotInLoop
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-DATA_DIR = os.path.join(ROOT_DIR, "data", "test_data")
-# DATA_DIR = os.path.join(ROOT_DIR, "data", "schedule_demo_data")
-CNFG_DIR = os.path.join(ROOT_DIR, "config")
-VB = False
-TIMEOUT = 1000
-
-robot_ids = None # if none, read from schedule
-
-### Configurations
-config_mpc_path = os.path.join(CNFG_DIR, "mpc_default.yaml")
-config_robot_path = os.path.join(CNFG_DIR, "spec_robot.yaml")
-
-config_mpc = MpcConfiguration.from_yaml(config_mpc_path)
-config_robot = CircularRobotSpecification.from_yaml(config_robot_path)
-
-### Map, graph, and schedule paths 
-map_path = os.path.join(DATA_DIR, "map.json")
-graph_path = os.path.join(DATA_DIR, "graph.json")
-schedule_path = os.path.join(DATA_DIR, "schedule.csv")
-start_path = os.path.join(DATA_DIR, "robot_start.json")
-with open(start_path, "r") as f:
-    robot_starts = json.load(f)
-
-### Set up the global path/schedule coordinator
-gpc = GlobalPathCoordinator.from_csv(schedule_path)
-gpc.load_graph_from_json(graph_path)
-gpc.load_map_from_json(map_path, inflation_margin=config_robot.vehicle_width+0.2)
-robot_ids = gpc.robot_ids if robot_ids is None else robot_ids
-static_obstacles = gpc.inflated_map.obstacle_coords_list
-
-### Set up robots
-robot_manager = RobotManager()
-for rid in robot_ids:
-    robot = robot_manager.create_robot(config_robot, UnicycleModel(sampling_time=config_mpc.ts), rid)
-    robot.set_state(np.asarray(robot_starts[str(rid)]))
-    # planner = MotionPlanInterface(rid, config_mpc, config_robot, verbose=VB)
-    planner = LocalTrajPlanner(config_mpc.ts, config_mpc.N_hor, config_robot.lin_vel_max, verbose=VB)
-    planner.load_map(gpc.inflated_map.boundary_coords, gpc.inflated_map.obstacle_coords_list)
-    
-    controller = TrajectoryTracker(config_mpc, config_robot, robot_id=rid, verbose=VB)
-    controller.load_motion_model(UnicycleModel(sampling_time=config_mpc.ts))
-    
-    visualizer = CircularObjectVisualizer(config_robot.vehicle_width, indicate_angle=True)
-    robot_manager.add_robot(robot, controller, planner, visualizer)
-
-    path_coords, path_times = gpc.get_robot_schedule(rid)
-    robot_manager.add_schedule(rid, np.asarray(robot_starts[str(rid)]), path_coords, path_times)
-
-### Run
-main_plotter = MpcPlotInLoop(config_robot)
-main_plotter.plot_in_loop_pre(gpc.current_map, gpc.inflated_map, gpc.current_graph)
-color_list = ["b", "r", "g"]
-
-
-for i, rid in enumerate(robot_ids):
-    planner = robot_manager.get_planner(rid)
-    controller = robot_manager.get_controller(rid)
-    visualizer = robot_manager.get_visualizer(rid)
-    main_plotter.add_object_to_pre(rid,
-                                   planner.ref_traj,
-                                   controller.state,
-                                   controller.final_goal,
-                                   color=color_list[i])
-    visualizer.plot(main_plotter.map_ax, *robot.state)
-
-for kt in range(TIMEOUT):
-    robot_states = []
-    incomplete = False
-    
-    ## 遍历更新机器人状态
-    for i, rid in enumerate(robot_ids):
-        ## 获取机器人组件
-        robot = robot_manager.get_robot(rid)
-        planner = robot_manager.get_planner(rid)
-        controller = robot_manager.get_controller(rid)
-        visualizer = robot_manager.get_visualizer(rid)
+class SimulationVisualizer:
+    """仿真可视化管理器"""
+    def __init__(self, config_robot):
+        self.plotter = MpcPlotInLoop(config_robot)
+        self.color_list = ["b", "r", "g"]
         
-        ## 获取其他机器人状态
-        other_robot_states = robot_manager.get_other_robot_states(rid, config_mpc)
-
-        ## 调用planner生成局部refer traj
-        ref_states, ref_speed, *_ = planner.get_local_ref(kt*config_mpc.ts, (float(robot.state[0]), float(robot.state[1])) )
-        print(f"Robot {rid} ref speed: {round(ref_speed, 4)}")
+    def initialize(self, current_map, inflated_map, current_graph):
+        self.plotter.plot_in_loop_pre(current_map, inflated_map, current_graph)
         
-        ## 将planner生成的refer traj传递给controller
-        controller.set_ref_states(ref_states, ref_speed=ref_speed)
+    def add_robot(self, robot, index):
+        self.plotter.add_object_to_pre(
+            robot.id_,
+            robot.planner.ref_traj,
+            robot.controller.state,
+            robot.controller.final_goal,
+            color=self.color_list[index % len(self.color_list)]
+        )
+        robot.visualizer.plot(self.plotter.map_ax, *robot.state)
         
-        ## 执行MPC控制计算
-        actions, pred_states, current_refs, debug_info = controller.run_step(static_obstacles=static_obstacles,
-                                                                                              full_dyn_obstacle_list=None,
-                                                                                              other_robot_states=other_robot_states,
-                                                                                              map_updated=False)
+    def update(self, simulation_result, kt, ts):
+        robot_id = simulation_result.robot_id
+        self.plotter.update_plot(
+            robot_id, kt,
+            simulation_result.actions[-1],
+            simulation_result.state,
+            simulation_result.debug_info['cost'],
+            simulation_result.pred_states,
+            simulation_result.current_refs
+        )
+        robot_visual = robot_visual = simulation_result.robot.visualizer
+        if robot_visual:
+            robot_visual.update(*simulation_result.state)
+        
+    def step(self, time, autorun=False, zoom_in=None):
+        self.plotter.plot_in_loop(time=time, autorun=autorun, zoom_in=zoom_in)
+        
+    def show(self):
+        self.plotter.show()
+        
+    def close(self):
+        self.plotter.close()
 
-        ### 将控制指令actions应用至机器人
-        robot.step(actions[-1]) #使用最后一个控制量
-        robot_manager.set_pred_states(rid, np.asarray(pred_states)) #存储预测状态
+async def main():
+    # 配置路径
+    ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+    DATA_DIR = os.path.join(ROOT_DIR, "data", "test_data")
+    CNFG_DIR = os.path.join(ROOT_DIR, "config")
+    VB = False
+    TIMEOUT = 1000
 
-        ## 更新可视化
-        main_plotter.update_plot(rid, kt, actions[-1], robot.state, debug_info['cost'], np.asarray(pred_states), current_refs)
-        visualizer.update(*robot.state)
+    # 加载配置
+    config_mpc = MpcConfiguration.from_yaml(os.path.join(CNFG_DIR, "mpc_default.yaml"))
+    config_robot = CircularRobotSpecification.from_yaml(os.path.join(CNFG_DIR, "spec_robot.yaml"))
 
-        if not controller.check_termination_condition(external_check=planner.idle):
-            incomplete = True
+    # 加载地图和调度数据
+    with open(os.path.join(DATA_DIR, "robot_start.json"), "r") as f:
+        robot_starts = json.load(f)
 
-        robot_states.append(robot.state)
-
-    main_plotter.plot_in_loop(time=kt*config_mpc.ts, autorun=False, zoom_in=None)
-    if not incomplete:
-        break
+    # 设置全局路径协调器
+    gpc = GlobalPathCoordinator.from_csv(os.path.join(DATA_DIR, "schedule.csv"))
+    gpc.load_graph_from_json(os.path.join(DATA_DIR, "graph.json"))
+    gpc.load_map_from_json(os.path.join(DATA_DIR, "map.json"), 
+                          inflation_margin=config_robot.vehicle_width+0.2)
     
-    
-main_plotter.show()
-input('Press anything to finish!')
-main_plotter.close()
+    robot_ids = gpc.robot_ids
+    static_obstacles = gpc.inflated_map.obstacle_coords_list
+
+    # 设置网络延迟模拟
+    network_delay = NetworkDelay(
+        mean_delay=0.1,    # 100ms平均延迟
+        std_delay=0.02,    # 20ms标准差
+        min_delay=0.05,    # 最小50ms
+        max_delay=0.2      # 最大200ms
+    )
+
+    # 创建管理器并启动
+    robot_manager = RobotManager(network_delay)
+    await robot_manager.start()
+
+    # 创建可视化管理器
+    visualizer = SimulationVisualizer(config_robot)
+    visualizer.initialize(gpc.current_map, gpc.inflated_map, gpc.current_graph)
+
+    # 创建并初始化机器人
+    robots = []
+    try:
+        # 并行初始化所有机器人
+        init_tasks = []
+        for i, rid in enumerate(robot_ids):
+            # 创建机器人
+            robot = Robot(config_robot, UnicycleModel(sampling_time=config_mpc.ts), rid)
+            
+            # 初始化组件
+            planner = LocalTrajPlanner(config_mpc.ts, config_mpc.N_hor, 
+                                     config_robot.lin_vel_max, verbose=VB)
+            planner.load_map(gpc.inflated_map.boundary_coords, 
+                            gpc.inflated_map.obstacle_coords_list)
+            
+            controller = TrajectoryTracker(config_mpc, config_robot, robot_id=rid, verbose=VB)
+            controller.load_motion_model(UnicycleModel(sampling_time=config_mpc.ts))
+            
+            # 初始化状态
+            initial_state = np.asarray(robot_starts[str(rid)])
+            controller.load_init_states(initial_state, initial_state)
+            
+            vis = CircularObjectVisualizer(config_robot.vehicle_width, indicate_angle=True)
+            
+            # 初始化机器人
+            robot.initialize(controller, planner, vis)
+            robot.set_state(initial_state)
+            
+            # 加载路径和设置目标
+            path_coords, path_times = gpc.get_robot_schedule(rid)
+            robot.load_schedule(path_coords, path_times)
+            
+            goal_coord = path_coords[-1]
+            goal_coord_prev = path_coords[-2]
+            goal_heading = np.arctan2(goal_coord[1]-goal_coord_prev[1], 
+                                    goal_coord[0]-goal_coord_prev[0])
+            goal_state = np.array([*goal_coord, goal_heading])
+            controller.load_init_states(initial_state, goal_state)
+            controller.set_work_mode('safe', use_predefined_speed=True)
+            
+            # 添加到可视化
+            visualizer.add_robot(robot, i)
+            robots.append(robot)
+            
+            # 创建启动任务
+            init_tasks.append(asyncio.create_task(robot.start()))
+            init_tasks.append(asyncio.create_task(robot.subscribe(robot_manager)))
+
+        # 等待所有机器人初始化完成，设置超时
+        try:
+            await asyncio.wait_for(asyncio.gather(*init_tasks), timeout=5.0)
+        except asyncio.TimeoutError:
+            print("Warning: Some robots failed to initialize in time")
+
+
+        # 主循环
+        for kt in range(TIMEOUT):
+            # 执行仿真步骤
+            results = await robot_manager.simulate_step(kt, config_mpc, static_obstacles)
+            
+            # 更新可视化
+            for result in results:
+                visualizer.update(result, kt, config_mpc.ts)
+            
+            # 步进可视化
+            visualizer.step(time=kt*config_mpc.ts)
+            
+            # 检查是否所有机器人都完成了任务
+            if robot_manager._all_complete:
+                break
+
+        # 显示最终结果
+        visualizer.show()
+        input('Press anything to finish!')
+        
+    finally:
+        # 清理资源
+        visualizer.close()
+        
+        # 停止所有机器人和管理器
+        await asyncio.gather(*[robot.stop() for robot in robots])
+        await robot_manager.stop()
+
+if __name__ == "__main__":
+    asyncio.run(main())

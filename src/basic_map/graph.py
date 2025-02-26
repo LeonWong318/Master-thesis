@@ -1,7 +1,8 @@
+from __future__ import annotations
 import json
 import math
 import random
-from typing import Any, Callable
+from typing import Any, Callable, List, Tuple, Dict
 
 import networkx as nx # type: ignore
 from matplotlib.axes import Axes # type: ignore
@@ -12,7 +13,7 @@ class NetGraph(nx.Graph):
     
     The function from_json() should be used to load the graph.
     """
-    def __init__(self, node_dict: dict[Any, tuple], edge_list: list[tuple]):
+    def __init__(self, node_dict: Dict[Any, Tuple], edge_list: List[Tuple]):
         """The init should not be used directly. Use from_json() instead.
 
         Args:
@@ -42,21 +43,28 @@ class NetGraph(nx.Graph):
         edge_list = data['edge_list']
         return cls(node_dict, edge_list)
     
+    @classmethod
+    def from_json_string(cls, json_string: str):
+        data = json.loads(json_string)
+        node_dict = data['node_dict']
+        edge_list = data['edge_list']
+        return cls(node_dict, edge_list)
+    
     def graph_coords_cvt(self, ct: Callable):
         for node_id, node_data in self.nodes(data=True):
             new_position = ct(node_data[self._position_key])
             self.nodes[node_id][self._position_key] = new_position
         self._distance_weight()
 
-    def get_node_coord(self, node_id) -> tuple:
+    def get_node_coord(self, node_id) -> Tuple:
         x = self.nodes[node_id][self._position_key][0]
         y = self.nodes[node_id][self._position_key][1]
         return x, y
 
-    def return_given_path(self, graph_node_ids: list) -> list[tuple]:
+    def return_given_path(self, graph_node_ids: list) -> list[Tuple]:
         return [self.get_node_coord(id) for id in graph_node_ids]
 
-    def return_random_path(self, start_node_id, num_traversed_nodes:int) -> list[tuple]:
+    def return_random_path(self, start_node_id, num_traversed_nodes:int) -> List[Tuple]:
         """Return random GeometricGraphNode without repeat nodes
         """
         node_ids = [start_node_id]

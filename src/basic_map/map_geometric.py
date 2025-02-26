@@ -1,5 +1,6 @@
+from __future__ import annotations
 import json
-from typing import TypedDict, Optional, Callable
+from typing import TypedDict, Optional, Callable, Tuple, Dict, List
 
 import numpy as np
 import matplotlib.pyplot as plt # type: ignore
@@ -7,13 +8,13 @@ import matplotlib.pyplot as plt # type: ignore
 from matplotlib.axes import Axes # type: ignore
 
 
-PathNode = tuple[float, float]
+PathNode = Tuple[float, float]
 
 
 class ObstacleInfo(TypedDict):
     id_: int
     name: str
-    vertices: list[PathNode]
+    vertices: List[PathNode]
 
 class GeometricMap:
     """With boundary and obstacle coordinates.
@@ -21,16 +22,16 @@ class GeometricMap:
     The function from_json() should be used to load a map.
     """
 
-    def __init__(self, boundary_coords: list[PathNode], 
-                 obstacle_info_list: list[ObstacleInfo]):
+    def __init__(self, boundary_coords: List[PathNode], 
+                 obstacle_info_list: List[ObstacleInfo]):
         """The init should not be used directly. Use from_json() instead.
 
         Arguments:
             boundary_coords: A list of tuples, each tuple is a pair of coordinates.
             obstacle_info_list: A list of ObstacleInfo including ID and name.
         """
-        self._boundary_coords:list[PathNode] = []
-        self._obstacle_info_dict:dict[int, ObstacleInfo] = {}
+        self._boundary_coords:List[PathNode] = []
+        self._obstacle_info_dict:Dict[int, ObstacleInfo] = {}
 
         self.register_boundary(boundary_coords)
         for obs in obstacle_info_list:
@@ -47,7 +48,7 @@ class GeometricMap:
             obs_coords_list.append(obs['vertices'])
         return obs_coords_list
 
-    def __call__(self) -> tuple[list[PathNode], list[list[PathNode]]]:
+    def __call__(self) -> Tuple[List[PathNode], List[List[PathNode]]]:
         """Return the boundary and obstacle coordinates."""
         return self.boundary_coords, self.obstacle_coords_list
     
@@ -76,7 +77,35 @@ class GeometricMap:
             return cls(boundary_coords_rescaled, obstacle_dict_list_rescaled)
     
     @classmethod
-    def from_raw(cls, boundary_coords: list[PathNode], obstacle_coords_list: list[list[PathNode]], rescale:Optional[float]=None):
+    def from_json_string(cls, json_string: str, rescale: Optional[float] = None):
+        data = json.loads(json_string)
+        boundary_coords = data['boundary_coords']
+
+        if 'obstacle_dict' in data:
+            obstacle_dict_list = data['obstacle_dict']
+        else:
+            obstacle_coords_list = data['obstacle_list']
+            obstacle_dict_list = [
+                {'id_': i, 'name': f'obstacle_{i}', 'vertices': obs} 
+                for i, obs in enumerate(obstacle_coords_list)
+            ]
+
+        if rescale is None:
+            return cls(boundary_coords, obstacle_dict_list)
+        else:
+            boundary_coords_rescaled = [(x[0]*rescale, x[1]*rescale) for x in boundary_coords]
+            obstacle_dict_list_rescaled = [
+                ObstacleInfo(
+                    id_=obs['id_'], 
+                    name=obs['name'], 
+                    vertices=[(x[0]*rescale, x[1]*rescale) for x in obs['vertices']]
+                ) 
+                for obs in obstacle_dict_list
+            ]
+            return cls(boundary_coords_rescaled, obstacle_dict_list_rescaled)
+    
+    @classmethod
+    def from_raw(cls, boundary_coords: List[PathNode], obstacle_coords_list: List[List[PathNode]], rescale:Optional[float]=None):
         """Load a map from raw data."""
         if rescale is None:
             obstacle_dict_list = [ObstacleInfo(id_=i, name=f'obstacle_{i}', vertices=obs) for i, obs in enumerate(obstacle_coords_list)]
@@ -92,19 +121,19 @@ class GeometricMap:
     
     def register_obstacle(self, obstacle: ObstacleInfo) -> None:
         """Check and register an obstacle to the map."""
-        if not isinstance(obstacle, dict):
+        if not isinstance(obstacle, Dict):
             raise TypeError('An obstacle info must be a dictionary.')
         if 'vertices' not in obstacle:
             raise ValueError('An obstacle info must have a key "vertices".')
-        if not isinstance(obstacle['vertices'], list):
+        if not isinstance(obstacle['vertices'], List):
             raise TypeError('An obstacle vertices must be a list of tuples.')
         if len(obstacle['vertices'][0])!=2:
             raise TypeError('All coordinates must be 2-dimension.')
         self._obstacle_info_dict[obstacle['id_']] = obstacle
 
-    def register_boundary(self, vertices: list[PathNode]) -> None:
+    def register_boundary(self, vertices: List[PathNode]) -> None:
         """Check and register the boundary to the map."""
-        if not isinstance(vertices, list):
+        if not isinstance(vertices, List):
             raise TypeError('A map boundary must be a list of tuples.')
         if len(vertices[0])!=2:
             raise TypeError('All coordinates must be 2-dimension.')
@@ -117,7 +146,7 @@ class GeometricMap:
             obs['vertices'] = [tuple(ct(x)) for x in obs['vertices']] # type: ignore
 
 
-    def get_boundary_scope(self) -> tuple[float, float, float, float]:
+    def get_boundary_scope(self) -> Tuple[float, float, float, float]:
         """Get the boundary scope."""
         x_min = min([x[0] for x in self._boundary_coords])
         x_max = max([x[0] for x in self._boundary_coords])
@@ -156,7 +185,7 @@ class GeometricMap:
         plt.close()
         return occupancy_map
 
-    def plot(self, ax: Axes, original_plot_args:dict={'c':'k'}, obstacle_filled=True, plot_boundary:bool=True):
+    def plot(self, ax: Axes, original_plot_args:Dict={'c':'k'}, obstacle_filled=True, plot_boundary:bool=True):
         if plot_boundary:
             ax.plot(np.array(self._boundary_coords+[self._boundary_coords[0]])[:,0], 
                     np.array(self._boundary_coords+[self._boundary_coords[0]])[:,1], 
@@ -166,7 +195,7 @@ class GeometricMap:
                     fill=obstacle_filled, **original_plot_args)
 
     @staticmethod
-    def dict_to_obstacle_info(obstacle_dict: dict) -> ObstacleInfo:
+    def dict_to_obstacle_info(obstacle_dict: Dict) -> ObstacleInfo:
         """Convert a dictionary to an ObstacleInfo."""
         if 'id_' not in obstacle_dict:
             raise ValueError('An obstacle info must have a key "id_".')

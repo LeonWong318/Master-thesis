@@ -25,6 +25,7 @@ class RobotManager:
         """启动管理器"""
         self._running = True
         self._message_task = asyncio.create_task(self._run_message_loop())
+        print('RobotManger initialized')
 
 
     async def stop(self):
