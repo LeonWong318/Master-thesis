@@ -119,13 +119,13 @@ for kt in range(TIMEOUT):
         main_plotter.update_plot(rid, kt, actions[-1], robot.state, debug_info['cost'], np.asarray(pred_states), current_refs)
         visualizer.update(*robot.state)
 
-        if not controller.check_termination_condition(external_check=planner.idle):
+        if controller.check_termination_condition(external_check=planner.idle):
             incomplete = True
 
         robot_states.append(robot.state)
 
     main_plotter.plot_in_loop(time=kt*config_mpc.ts, autorun=False, zoom_in=None)
-    if not incomplete:
+    if incomplete:
         break
     
     
