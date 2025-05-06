@@ -78,6 +78,9 @@
         <mxCell id="dJOt1qtsqDQy8CdNZj8O-20" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 15px;&quot;&gt;End&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
           <mxGeometry x="490" y="170" width="50" height="30" as="geometry" />
         </mxCell>
+        <mxCell id="dJOt1qtsqDQy8CdNZj8O-21" value="&lt;font face=&quot;Times New Roman&quot; style=&quot;font-size: 15px;&quot;&gt;smd&lt;/font&gt;" style="shape=umlFrame;whiteSpace=wrap;html=1;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="65" y="120" width="490" height="295" as="geometry" />
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>
